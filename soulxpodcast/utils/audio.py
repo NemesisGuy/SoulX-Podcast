@@ -106,7 +106,11 @@ def audio_volume_normalize(audio: torch.Tensor, coeff=0.1):
 
     # If there are fewer than or equal to 10 significant values, return the audio without further processing
     if L <= 10:
-        return audio
+        # ensure we always return a torch.Tensor to avoid callers assuming tensor methods
+        try:
+            return torch.from_numpy(audio).to(device)
+        except Exception:
+            return torch.tensor(audio)
 
     # Compute the average of the top 10% to 1% of values in temp
     volume = np.mean(temp[int(0.9 * L) : int(0.99 * L)])
