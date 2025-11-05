@@ -179,6 +179,18 @@ python3 webui.py --model_path pretrained_models/SoulX-Podcast-1.7B-dialect
 ```
 
 
+## Streaming mode
+
+The Gradio UI supports an optional streaming mode that yields partial outputs (audio chunks) to the browser as they become available. To enable streaming by default when starting the server, use the `--stream` CLI flag:
+
+```bash
+python gradio_app.py --stream
+```
+
+You can also enable streaming from the UI using the "Enable streaming (yield partial outputs)" checkbox. When streaming is enabled the UI will incrementally receive audio chunks while the model completes generation; when disabled the behavior remains the original blocking inference.
+
+Example smoke test for streaming mode is provided at `example/streaming/smoke_test.py`.
+
 ## TODOs
 - [x] Add example scripts for monologue TTS.
 - [x] Publish the [technical report](https://arxiv.org/pdf/2510.23541).
