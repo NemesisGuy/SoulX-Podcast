@@ -477,6 +477,18 @@ def infer_from_ui(
                 # prepare raw PCM16 bytes for in-memory streaming if requested
                 try:
                     np_arr = concat_so_far.cpu().squeeze(0).numpy()
+                    # Conservative peak normalization: boost low-volume outputs but cap gain
+                    try:
+                        peak = float(np.max(np.abs(np_arr)))
+                    except Exception:
+                        peak = 0.0
+                    if peak > 0 and peak < 0.8:
+                        target_peak = 0.8
+                        gain = target_peak / peak
+                        max_gain = 8.0
+                        if gain > max_gain:
+                            gain = max_gain
+                        np_arr = np_arr * gain
                     # convert float32 in [-1,1] to int16 PCM
                     pcm16 = (np.clip(np_arr, -1.0, 1.0) * 32767.0).astype(np.int16)
                     pcm_bytes = pcm16.tobytes()
@@ -494,6 +506,17 @@ def infer_from_ui(
             # prepare final pcm bytes
             try:
                 np_final = target_audio.cpu().squeeze(0).numpy()
+                try:
+                    peakf = float(np.max(np.abs(np_final)))
+                except Exception:
+                    peakf = 0.0
+                if peakf > 0 and peakf < 0.8:
+                    target_peakf = 0.8
+                    gainf = target_peakf / peakf
+                    max_gainf = 8.0
+                    if gainf > max_gainf:
+                        gainf = max_gainf
+                    np_final = np_final * gainf
                 pcm16_final = (np.clip(np_final, -1.0, 1.0) * 32767.0).astype(np.int16)
                 final_pcm_bytes = pcm16_final.tobytes()
             except Exception:
