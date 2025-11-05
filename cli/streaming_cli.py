@@ -110,7 +110,8 @@ def worker(job_queue: "queue.Queue[Job]", stop_event: threading.Event):
                         num_channels = 1
                         bytes_per_sample = 2
                         play_obj = sa.play_buffer(pcm_bytes, num_channels, bytes_per_sample, sr)
-                        # play asynchronously (non-blocking)
+                        # block until this chunk finishes to avoid overlap/echo
+                        play_obj.wait_done()
                     except Exception as e:
                         print(f"[worker] simpleaudio play failed: {e}")
                         pcm_bytes = None
@@ -121,8 +122,8 @@ def worker(job_queue: "queue.Queue[Job]", stop_event: threading.Event):
                         # try to play on Windows using winsound
                         if IS_WINDOWS and winsound is not None:
                             try:
-                                # Play asynchronously so the worker continues
-                                winsound.PlaySound(audio_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+                                # Play synchronously (blocking) to avoid overlapping chunks
+                                winsound.PlaySound(audio_path, winsound.SND_FILENAME)
                             except Exception as e:
                                 print(f"[worker] could not play audio: {e}")
 
@@ -139,6 +140,8 @@ def main(argv: Optional[list[str]] = None):
     parser.add_argument("--llm", type=str, default="hf", help="LM engine to use: hf or vllm")
     parser.add_argument("--fp16", action="store_true", help="Use fp16 for flow model")
     parser.add_argument("--output", type=str, default="outputs/cli_stream_output.wav", help="Base output path")
+    parser.add_argument("--prompt-wav", type=str, default=None, help="Path to reference WAV to use as prompt for speaker style")
+    parser.add_argument("--sample", type=str, default=None, help="Name of sample under example/audios to use as prompt (e.g. female_mandarin.wav)")
     args = parser.parse_args(argv)
 
     q: "queue.Queue[Job]" = queue.Queue()
@@ -147,6 +150,20 @@ def main(argv: Optional[list[str]] = None):
     t.start()
 
     print("Interactive streaming CLI. Type lines (Enter to queue). Type /quit or /q to exit.")
+    print("Runtime commands: /sample <path|name> to change reference sample, /prompt <path> to set prompt wav")
+    # Resolve initial prompt wav
+    current_prompt = None
+    if args.sample:
+        sample_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "example", "audios", args.sample)
+        if os.path.exists(sample_path):
+            current_prompt = sample_path
+        else:
+            print(f"Warning: sample not found: {sample_path}")
+    if args.prompt_wav:
+        if os.path.exists(args.prompt_wav):
+            current_prompt = args.prompt_wav
+        else:
+            print(f"Warning: prompt wav not found: {args.prompt_wav}")
     try:
         while True:
             try:
@@ -158,12 +175,36 @@ def main(argv: Optional[list[str]] = None):
             if line.strip().lower() in ("/quit", "/q", "quit", "exit"):
                 break
 
+            # runtime command to change sample/prompt
+            if line.strip().startswith("/sample "):
+                arg = line.strip()[8:].strip()
+                # try resolve as a repo sample first
+                candidate = os.path.join(os.path.dirname(os.path.dirname(__file__)), "example", "audios", arg)
+                if os.path.exists(candidate):
+                    current_prompt = candidate
+                    print(f"Set current sample to: {current_prompt}")
+                elif os.path.exists(arg):
+                    current_prompt = arg
+                    print(f"Set current sample to: {current_prompt}")
+                else:
+                    print(f"Sample not found: {arg}")
+                continue
+            if line.strip().startswith("/prompt "):
+                arg = line.strip()[8:].strip()
+                if os.path.exists(arg):
+                    current_prompt = arg
+                    print(f"Set current prompt wav to: {current_prompt}")
+                else:
+                    print(f"Prompt wav not found: {arg}")
+                continue
+
             job = {
                 "text": line,
                 "params": {
                     "model_path": args.model_path,
                     "model_choice": None,
                     "output_path": args.output,
+                    "prompt_wav_file": current_prompt,
                     "llm_engine": args.llm,
                     "fp16_flow": args.fp16,
                     "seed": 42,
